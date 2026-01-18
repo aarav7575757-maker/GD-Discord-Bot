@@ -5,11 +5,15 @@ import os
 import matplotlib.pyplot as plt
 from datetime import date
 
-# ================== CONFIG ==================
+import os
+
+# Load token from environment variable
 TOKEN = os.getenv("DISCORD_TOKEN")
 
+# Safety check to prevent crash if token is missing
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN environment variable not set")
+
 COMPLETION_CHANNEL_ID = 1423980603878932692  # replace with your channel ID
 
 DATA_FILE = "points.json"
@@ -195,4 +199,5 @@ async def on_message(message):
 
 # ================== RUN ==================
 client.run(TOKEN)
+
 
