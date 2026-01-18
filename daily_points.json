@@ -1,0 +1,51 @@
+import matplotlib.pyplot as plt
+import discord
+from discord import File
+
+@tree.command(name="graph", description="Show daily leaderboard graph")
+async def graph(interaction: discord.Interaction):
+    await interaction.response.defer()  # allows time to generate graph
+
+    # Load daily data
+    try:
+        with open(DAILY_FILE, "r") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        await interaction.followup.send("No data yet.")
+        return
+
+    if not data:
+        await interaction.followup.send("No data yet.")
+        return
+
+    # Collect users
+    all_users = set()
+    for day in data:
+        all_users.update(data[day].keys())
+    all_users = sorted(all_users)
+
+    # Prepare graph data
+    days = sorted(data.keys())
+    lines = {user: [] for user in all_users}
+
+    for day in days:
+        for user in all_users:
+            lines[user].append(data[day].get(user, 0))
+
+    # Plot
+    plt.figure(figsize=(10,6))
+    for user, points in lines.items():
+        plt.plot(days, points, marker='o', label=user)
+
+    plt.xticks(rotation=45)
+    plt.xlabel("Date")
+    plt.ylabel("Points")
+    plt.title("Daily Leaderboard")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("leaderboard.png")
+    plt.close()
+
+    # Send to Discord
+    await interaction.followup.send(file=File("leaderboard.png"))
+
