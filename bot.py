@@ -1,84 +1,92 @@
 import discord
-from discord import app_commands
-import json
-import os
-import matplotlib.pyplot as plt
-from datetime import date
-
-import os
-
-# Load token from environment variable
-TOKEN = os.getenv("DISCORD_TOKEN")
-
-# Safety check to prevent crash if token is missing
-if not TOKEN:
-    raise RuntimeError("DISCORD_TOKEN environment variable not set")
-
-COMPLETION_CHANNEL_ID = 1423980603878932692  # replace with your channel ID
-
-DATA_FILE = "points.json"
-SUBMISSIONS_FILE = "submissions.json"
-HISTORY_FILE = "history.json"
-GRAPH_FILE = "leaderboard.png"
-
-# ================== POINTS TABLE ==================
-POINTS = {
-    "auto": 0,
-    "easy": 1,
-    "normal": 3,
-    "hard": 6,
-    "harder": 14,
-    "insane": 32,
-    "tier 1 demon": 50,
-    "tier 2 demon": 115,
-    "tier 3 demon": 190,
-    "tier 4 demon": 275,
-    "tier 5 demon": 355,
-    "tier 6 demon": 445,
-    "tier 7 demon": 575,
-    "tier 8 demon": 700,
-    "tier 9 demon": 850,
-    "tier 10 demon": 1025,
-    "tier 11 demon": 1125,
-    "tier 12 demon": 1300,
-    "tier 13 demon": 1500,
-    "tier 14 demon": 1725,
-    "tier 15 demon": 1975,
-    "tier 16 demon": 2275,
-    "tier 17 demon": 2600,
-    "tier 18 demon": 2950,
-    "tier 19 demon": 2325,
-    "tier 20 demon": 2725,
-    "extreme": 3125
-}
-
-# ================== BOT SETUP ==================
-intents = discord.Intents.default()
-intents.message_content = True
-client = discord.Client(intents=intents)
-tree = app_commands.CommandTree(client)
-import matplotlib.pyplot as plt
-from discord import File
-from discord import app_commands
-import discord
+from discord import app_commands, File
+from discord.ext import commands
 import json
 from datetime import datetime
+import matplotlib.pyplot as plt
+import os
 
+# ---------- CONFIG ----------
+TOKEN = os.getenv("DISCORD_TOKEN")  # set your token in Railway environment variables
+GUILD_ID = None  # set your guild ID if you want commands to be guild-specific for faster registration
+
+# JSON files
+POINTS_FILE = "points.json"
+SUBMISSIONS_FILE = "submissions.json"
 DAILY_FILE = "daily_points.json"
 
-@tree.command(name="graph", description="Show daily leaderboard graph")
+# Points per difficulty
+POINTS = {
+    "Auto": 0, "Easy": 1, "Normal": 3, "Hard": 6, "Harder": 14,
+    "Insane": 32, "Tier 1 Demon": 50, "Tier 2 Demon": 115, "Tier 3 Demon": 190,
+    "Tier 4 Demon": 275, "Tier 5 Demon": 355, "Tier 6 Demon": 445, "Tier 7 Demon": 575,
+    "Tier 8 Demon": 700, "Tier 9 Demon": 850, "Tier 10 Demon": 1025, "Tier 11 Demon": 1125,
+    "Tier 12 Demon": 1300, "Tier 13 Demon": 1500, "Tier 14 Demon": 1725, "Tier 15 Demon": 1975,
+    "Tier 16 Demon": 2275, "Tier 17 Demon": 2600, "Tier 18 Demon": 2950, "Tier 19 Demon": 2325,
+    "Tier 20 Demon": 2725, "Extreme": 3125
+}
+
+# ---------- BOT SETUP ----------
+intents = discord.Intents.default()
+intents.message_content = True
+client = commands.Bot(command_prefix="!", intents=intents)
+tree = client.tree
+
+# ---------- HELPER FUNCTIONS ----------
+def load_json(filename):
+    if not os.path.exists(filename):
+        return {}
+    with open(filename, "r") as f:
+        data = f.read().strip()
+        return json.loads(data) if data else {}
+
+def save_json(filename, data):
+    with open(filename, "w") as f:
+        json.dump(data, f, indent=4)
+
+def add_points(user, difficulty, amount=1):
+    points_data = load_json(POINTS_FILE)
+    points_data[user] = points_data.get(user, 0) + POINTS.get(difficulty, 0) * amount
+    save_json(POINTS_FILE, points_data)
+    return points_data[user]
+
+def add_daily_points(user, points):
+    today = datetime.now().strftime("%Y-%m-%d")
+    daily_data = load_json(DAILY_FILE)
+    if today not in daily_data:
+        daily_data[today] = {}
+    daily_data[today][user] = daily_data[today].get(user, 0) + points
+    save_json(DAILY_FILE, daily_data)
+
+def add_submission(user, difficulty, amount=1):
+    subs = load_json(SUBMISSIONS_FILE)
+    if user not in subs:
+        subs[user] = {}
+    subs[user][difficulty] = subs[user].get(difficulty, 0) + amount
+    save_json(SUBMISSIONS_FILE, subs)
+
+# ---------- /submit COMMAND ----------
+@tree.command(name="submit", description="Submit points for a difficulty")
+@app_commands.describe(difficulty="Difficulty name", amount="How many completions (default 1)")
+async def submit(interaction: discord.Interaction, difficulty: str, amount: int = 1):
+    difficulty = difficulty.title()  # normalize
+    if difficulty not in POINTS:
+        await interaction.response.send_message(f"Invalid difficulty! Valid: {', '.join(POINTS.keys())}")
+        return
+
+    user = str(interaction.user)
+    total_points = add_points(user, difficulty, amount)
+    add_daily_points(user, POINTS[difficulty] * amount)
+    add_submission(user, difficulty, amount)
+
+    await interaction.response.send_message(f"{interaction.user.mention} submitted {amount}x {difficulty} ✅ Total points: {total_points}")
+
+# ---------- /graph COMMAND ----------
+@tree.command(name="graph", description="Show daily total points graph")
 async def graph(interaction: discord.Interaction):
-    # Tell Discord we're working (prevents timeout)
     await interaction.response.defer()
+    data = load_json(DAILY_FILE)
 
-    # Load daily data
-    try:
-        with open(DAILY_FILE, "r") as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        data = {}
-
-    # If file is empty, just show "first day" placeholder
     today = datetime.now().strftime("%Y-%m-%d")
     if today not in data:
         data[today] = {}
@@ -87,25 +95,20 @@ async def graph(interaction: discord.Interaction):
         await interaction.followup.send("No submissions yet.")
         return
 
-    # Collect all users
     all_users = set()
     for day in data:
         all_users.update(data[day].keys())
     all_users = sorted(all_users)
-
     if not all_users:
         await interaction.followup.send("No submissions yet.")
         return
 
-    # Prepare graph data
     days = sorted(data.keys())
     lines = {user: [] for user in all_users}
-
     for day in days:
         for user in all_users:
             lines[user].append(data[day].get(user, 0))
 
-    # Plot the graph
     plt.figure(figsize=(10,6))
     for user, points in lines.items():
         plt.plot(days, points, marker='o', label=user)
@@ -119,150 +122,14 @@ async def graph(interaction: discord.Interaction):
     plt.savefig("leaderboard.png")
     plt.close()
 
-    # Send the graph to Discord
     await interaction.followup.send(file=File("leaderboard.png"))
 
-# ================== FILE HELPERS ==================
-def load_json(file):
-    if os.path.exists(file):
-        with open(file, "r") as f:
-            return json.load(f)
-    return {}
-
-def save_json(file, data):
-    with open(file, "w") as f:
-        json.dump(data, f, indent=2)
-
-points_data = load_json(DATA_FILE)
-submissions = load_json(SUBMISSIONS_FILE)
-history = load_json(HISTORY_FILE)
-
-# ================== HISTORY UPDATE ==================
-def update_daily_history():
-    today = date.today().isoformat()
-    total_points = sum(points_data.values())
-    history[today] = total_points
-    save_json(HISTORY_FILE, history)
-
-# ================== READY ==================
+# ---------- ON READY ----------
 @client.event
 async def on_ready():
     await tree.sync()
-    print(f"✅ Bot online as {client.user}")
-    print("✅ Slash commands synced")
+    print(f"Logged in as {client.user}")
 
-# ================== SLASH COMMANDS ==================
-
-@tree.command(name="leaderboard", description="Show the top players")
-async def leaderboard(interaction: discord.Interaction):
-    if not points_data:
-        await interaction.response.send_message("No points yet.")
-        return
-
-    sorted_players = sorted(points_data.items(), key=lambda x: x[1], reverse=True)
-
-    embed = discord.Embed(title="🏆 Leaderboard", color=0xffd700)
-    for i, (player, pts) in enumerate(sorted_players[:10], start=1):
-        embed.add_field(name=f"{i}. {player}", value=f"{pts} points", inline=False)
-
-    await interaction.response.send_message(embed=embed)
-
-@tree.command(name="stats", description="Check a player's points")
-@app_commands.describe(player="Player name")
-async def stats(interaction: discord.Interaction, player: str):
-    pts = points_data.get(player, 0)
-    await interaction.response.send_message(
-        f"**{player}** has **{pts}** points."
-    )
-
-@tree.command(name="graph", description="Show daily total points graph")
-async def graph(interaction: discord.Interaction):
-    if len(history) < 2:
-        await interaction.response.send_message(
-            "Not enough data yet. Graph updates daily.",
-            ephemeral=True
-        )
-        return
-
-    dates = list(history.keys())
-    totals = list(history.values())
-
-    plt.figure()
-    plt.plot(dates, totals, marker="o")
-    plt.xticks(rotation=45)
-    plt.xlabel("Date")
-    plt.ylabel("Total Points")
-    plt.title("Daily Total Points Progress")
-    plt.tight_layout()
-    plt.savefig(GRAPH_FILE)
-    plt.close()
-
-    await interaction.response.send_message(
-        file=discord.File(GRAPH_FILE)
-    )
-
-# ================== COMPLETION HANDLER ==================
-@client.event
-async def on_message(message):
-    if message.author.bot:
-        return
-    if message.channel.id != COMPLETION_CHANNEL_ID:
-        return
-
-    try:
-        lines = message.content.lower().splitlines()
-        info = {}
-        total_points = 0
-        breakdown = []
-
-        for line in lines:
-            if ":" in line:
-                k, v = line.split(":", 1)
-                info[k.strip()] = v.strip()
-
-        if "player" not in info:
-            await message.reply("❌ Missing Player.")
-            return
-
-        player = info["player"]
-        level = info.get("level", "Multiple / None")
-
-        points_data.setdefault(player, 0)
-        submissions.setdefault(player, [])
-
-        for key, value in info.items():
-            if key in POINTS:
-                try:
-                    amount = int(value)
-                except ValueError:
-                    amount = 1
-
-                earned = POINTS[key] * amount
-                total_points += earned
-                breakdown.append(f"{key.title()} × {amount} = {earned}")
-
-        if total_points == 0:
-            await message.reply("❌ No valid difficulties found.")
-            return
-
-        points_data[player] += total_points
-        save_json(DATA_FILE, points_data)
-        update_daily_history()
-
-        embed = discord.Embed(title="✅ Completion Recorded", color=0x00ff00)
-        embed.add_field(name="Player", value=player, inline=False)
-        embed.add_field(name="Level", value=level, inline=False)
-        embed.add_field(name="Breakdown", value="\n".join(breakdown), inline=False)
-        embed.add_field(name="Points Earned", value=total_points, inline=True)
-        embed.add_field(name="Total Points", value=points_data[player], inline=True)
-
-        await message.reply(embed=embed)
-
-    except Exception as e:
-        print("ERROR:", e)
-
-# ================== RUN ==================
+# ---------- RUN BOT ----------
 client.run(TOKEN)
-
-
 
