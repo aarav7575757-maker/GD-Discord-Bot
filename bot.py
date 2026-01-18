@@ -33,46 +33,48 @@ client = commands.Bot(command_prefix="!", intents=intents)
 tree = client.tree
 
 # ---------- HELPER FUNCTIONS ----------
-def load_json(filename):
-    if not os.path.exists(filename):
-        return {}
-    with open(filename, "r") as f:
-        data = f.read().strip()
-        return json.loads(data) if data else {}
+@tree.command(name="graph", description="Show daily total points graph")
+async def graph(interaction: discord.Interaction):
+    await interaction.response.defer()
+    try:
+        data = load_json(DAILY_FILE)
 
-def save_json(filename, data):
-    with open(filename, "w") as f:
-        json.dump(data, f, indent=4)
+        today = datetime.now().strftime("%Y-%m-%d")
+        if today not in data:
+            data[today] = {}
 
-def add_points(user, difficulty, amount=1):
-    points_data = load_json(POINTS_FILE)
-    points_data[user] = points_data.get(user, 0) + POINTS.get(difficulty, 0) * amount
-    save_json(POINTS_FILE, points_data)
-    return points_data[user]
+        all_users = set()
+        for day in data:
+            all_users.update(data[day].keys())
+        all_users = sorted(all_users)
+        if not all_users:
+            await interaction.followup.send("No submissions yet.")
+            return
 
-def add_daily_points(user, points):
-    today = datetime.now().strftime("%Y-%m-%d")
-    daily_data = load_json(DAILY_FILE)
-    if today not in daily_data:
-        daily_data[today] = {}
-    daily_data[today][user] = daily_data[today].get(user, 0) + points
-    save_json(DAILY_FILE, daily_data)
+        days = sorted(data.keys())
+        lines = {user: [] for user in all_users}
+        for day in days:
+            for user in all_users:
+                lines[user].append(data[day].get(user, 0))
 
-def add_submission(user, difficulty, amount=1):
-    subs = load_json(SUBMISSIONS_FILE)
-    if user not in subs:
-        subs[user] = {}
-    subs[user][difficulty] = subs[user].get(difficulty, 0) + amount
-    save_json(SUBMISSIONS_FILE, subs)
+        plt.figure(figsize=(10,6))
+        for user, points in lines.items():
+            plt.plot(days, points, marker='o', label=user)
 
-# ---------- /submit COMMAND ----------
-@tree.command(name="submit", description="Submit points for a difficulty")
-@app_commands.describe(difficulty="Difficulty name", amount="How many completions (default 1)")
-async def submit(interaction: discord.Interaction, difficulty: str, amount: int = 1):
-    difficulty = difficulty.title()  # normalize
-    if difficulty not in POINTS:
-        await interaction.response.send_message(f"Invalid difficulty! Valid: {', '.join(POINTS.keys())}")
-        return
+        plt.xticks(rotation=45)
+        plt.xlabel("Date")
+        plt.ylabel("Points")
+        plt.title("Daily Leaderboard")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig("/app/leaderboard.png")  # Railway-safe path
+        plt.close()
+
+        await interaction.followup.send(file=File("/app/leaderboard.png"))
+
+    except Exception as e:
+        await interaction.followup.send(f"Error generating graph: {e}")
+
 
     user = str(interaction.user)
     total_points = add_points(user, difficulty, amount)
@@ -132,4 +134,5 @@ async def on_ready():
 
 # ---------- RUN BOT ----------
 client.run(TOKEN)
+
 
