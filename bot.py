@@ -57,6 +57,70 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
+import matplotlib.pyplot as plt
+from discord import File
+from discord import app_commands
+import discord
+import json
+from datetime import datetime
+
+DAILY_FILE = "daily_points.json"
+
+@tree.command(name="graph", description="Show daily leaderboard graph")
+async def graph(interaction: discord.Interaction):
+    # Tell Discord we're working (prevents timeout)
+    await interaction.response.defer()
+
+    # Load daily data
+    try:
+        with open(DAILY_FILE, "r") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = {}
+
+    # If file is empty, just show "first day" placeholder
+    today = datetime.now().strftime("%Y-%m-%d")
+    if today not in data:
+        data[today] = {}
+
+    if not data:
+        await interaction.followup.send("No submissions yet.")
+        return
+
+    # Collect all users
+    all_users = set()
+    for day in data:
+        all_users.update(data[day].keys())
+    all_users = sorted(all_users)
+
+    if not all_users:
+        await interaction.followup.send("No submissions yet.")
+        return
+
+    # Prepare graph data
+    days = sorted(data.keys())
+    lines = {user: [] for user in all_users}
+
+    for day in days:
+        for user in all_users:
+            lines[user].append(data[day].get(user, 0))
+
+    # Plot the graph
+    plt.figure(figsize=(10,6))
+    for user, points in lines.items():
+        plt.plot(days, points, marker='o', label=user)
+
+    plt.xticks(rotation=45)
+    plt.xlabel("Date")
+    plt.ylabel("Points")
+    plt.title("Daily Leaderboard")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("leaderboard.png")
+    plt.close()
+
+    # Send the graph to Discord
+    await interaction.followup.send(file=File("leaderboard.png"))
 
 # ================== FILE HELPERS ==================
 def load_json(file):
@@ -199,5 +263,6 @@ async def on_message(message):
 
 # ================== RUN ==================
 client.run(TOKEN)
+
 
 
