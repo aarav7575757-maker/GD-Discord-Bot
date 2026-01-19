@@ -5,166 +5,161 @@ import os
 from datetime import date
 import matplotlib.pyplot as plt
 
-# ================= CONFIG =================
+TOKEN = os.getenv("DISCORD_TOKEN")  # Railway / GitHub
+# OR replace with string if local:
+# TOKEN = "YOUR_BOT_TOKEN_HERE"
 
-TOKEN = os.getenv("DISCORD_TOKEN")
+DATA_POINTS = "points.json"
+DATA_SUBS = "submissions.json"
+DATA_HISTORY = "history.json"
 
-DATA_FILE = "points.json"
-DAILY_FILE = "daily_points.json"
+# ---------------- SAFE JSON ----------------
 
-DIFFICULTY_POINTS = {
-    "easy": 1,
-    "normal": 2,
-    "hard": 3,
-    "insane": 4,
-    "extreme": 5
-}
-
-# ================= HELPERS =================
-
-def load_json(path):
+def load_json(path, default):
     if not os.path.exists(path):
-        return {}
-    with open(path, "r") as f:
-        return json.load(f)
+        with open(path, "w") as f:
+            json.dump(default, f)
+        return default
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        with open(path, "w") as f:
+            json.dump(default, f)
+        return default
 
 def save_json(path, data):
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
 
-# ================= BOT =================
+points = load_json(DATA_POINTS, {})
+submissions = load_json(DATA_SUBS, [])
+history = load_json(DATA_HISTORY, {})
+
+# ---------------- DISCORD SETUP ----------------
 
 intents = discord.Intents.default()
-
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
-
-# ================= EVENTS =================
 
 @client.event
 async def on_ready():
     await tree.sync()
-    print(f"Logged in as {client.user}")
+    print(f"✅ Logged in as {client.user}")
 
-# ================= COMMANDS =================
+# ---------------- POINT VALUES ----------------
 
-@tree.command(name="submit", description="Submit level completions (multiple difficulties allowed)")
+POINTS = {
+    "easy": 1,
+    "normal": 2,
+    "hard": 3,
+    "harder": 4,
+    "insane": 5,
+    "demon": 10
+}
+
+# ---------------- /submit ----------------
+
+@tree.command(name="submit", description="Submit beaten levels")
 @app_commands.describe(
-    easy="Number of easy levels",
-    normal="Number of normal levels",
-    hard="Number of hard levels",
-    insane="Number of insane levels",
-    extreme="Number of extreme levels"
+    difficulty="easy, normal, hard, harder, insane, demon",
+    amount="How many levels",
+    level_name="Optional level name"
 )
 async def submit(
     interaction: discord.Interaction,
-    easy: int = 0,
-    normal: int = 0,
-    hard: int = 0,
-    insane: int = 0,
-    extreme: int = 0
+    difficulty: str,
+    amount: int,
+    level_name: str | None = None
 ):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
 
-    total_points = (
-        easy * DIFFICULTY_POINTS["easy"] +
-        normal * DIFFICULTY_POINTS["normal"] +
-        hard * DIFFICULTY_POINTS["hard"] +
-        insane * DIFFICULTY_POINTS["insane"] +
-        extreme * DIFFICULTY_POINTS["extreme"]
-    )
-
-    if total_points <= 0:
-        await interaction.followup.send("You must submit at least one level.")
+    difficulty = difficulty.lower()
+    if difficulty not in POINTS or amount <= 0:
+        await interaction.followup.send("❌ Invalid difficulty or amount")
         return
 
     uid = str(interaction.user.id)
+    gained = POINTS[difficulty] * amount
+
+    points[uid] = points.get(uid, 0) + gained
+    save_json(DATA_POINTS, points)
+
     today = str(date.today())
+    history.setdefault(today, {})
+    history[today][uid] = points[uid]
+    save_json(DATA_HISTORY, history)
 
-    total_data = load_json(DATA_FILE)
-    daily_data = load_json(DAILY_FILE)
-
-    total_data[uid] = total_data.get(uid, 0) + total_points
-
-    if today not in daily_data:
-        daily_data[today] = {}
-    daily_data[today][uid] = daily_data[today].get(uid, 0) + total_points
-
-    save_json(DATA_FILE, total_data)
-    save_json(DAILY_FILE, daily_data)
+    submissions.append({
+        "user": uid,
+        "difficulty": difficulty,
+        "amount": amount,
+        "level": level_name,
+        "date": today
+    })
+    save_json(DATA_SUBS, submissions)
 
     await interaction.followup.send(
-        f"✅ Submitted **{total_points} points**!\n"
-        f"Easy: {easy}, Normal: {normal}, Hard: {hard}, Insane: {insane}, Extreme: {extreme}"
+        f"✅ **{interaction.user.name}** gained **{gained} points**"
     )
 
-# ================= LEADERBOARD =================
+# ---------------- /leaderboard ----------------
 
-@tree.command(name="leaderboard", description="Show total points leaderboard")
+@tree.command(name="leaderboard", description="Show points leaderboard")
 async def leaderboard(interaction: discord.Interaction):
     await interaction.response.defer()
 
-    total_data = load_json(DATA_FILE)
-    if not total_data:
-        await interaction.followup.send("No data yet.")
+    if not points:
+        await interaction.followup.send("No data yet")
         return
 
-    sorted_data = sorted(total_data.items(), key=lambda x: x[1], reverse=True)
+    sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)
 
-    msg = "**🏆 Leaderboard**\n"
-    for i, (uid, pts) in enumerate(sorted_data[:10], start=1):
-        member = interaction.guild.get_member(int(uid))
-        name = member.display_name if member else f"User {uid}"
-        msg += f"{i}. {name}: **{pts}** points\n"
+    text = ""
+    for i, (uid, pts) in enumerate(sorted_users[:10], start=1):
+        user = await client.fetch_user(int(uid))
+        text += f"**{i}. {user.name}** — {pts} pts\n"
 
-    await interaction.followup.send(msg)
+    await interaction.followup.send(text)
 
-# ================= GRAPH =================
+# ---------------- /graph ----------------
 
-@tree.command(name="graph")
+@tree.command(name="graph", description="Daily total points graph")
 async def graph(interaction: discord.Interaction):
     await interaction.response.defer()
 
-    # slow work
-    generate_graph()
-
-    await interaction.followup.send(file=...)
-
-
-    daily_data = load_json(DAILY_FILE)
-    if not daily_data:
-        await interaction.followup.send("No data yet.")
+    if not history:
+        await interaction.followup.send("Not enough data yet")
         return
 
-    dates = sorted(daily_data.keys())
-    totals = []
+    dates = sorted(history.keys())
+    users = set(uid for day in history.values() for uid in day)
 
-    for d in dates:
-        totals.append(sum(daily_data[d].values()))
-
-    # Always show first day
     plt.figure()
-    plt.plot(dates, totals, marker="o")
-    plt.title("Daily Total Points")
+
+    for uid in users:
+        values = []
+        last = 0
+        for d in dates:
+            if uid in history[d]:
+                last = history[d][uid]
+            values.append(last)
+
+        user = await client.fetch_user(int(uid))
+        plt.plot(dates, values, label=user.name)
+
     plt.xlabel("Date")
     plt.ylabel("Points")
+    plt.title("Daily Points Progress")
+    plt.legend()
     plt.xticks(rotation=45)
     plt.tight_layout()
 
-    path = "graph.png"
-    plt.savefig(path)
+    plt.savefig("graph.png")
     plt.close()
 
-    await interaction.followup.send(file=discord.File(path))
+    await interaction.followup.send(file=discord.File("graph.png"))
 
-@tree.command(name="ping", description="Test command")
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("Pong!")
-
-
-# ================= RUN =================
+# ---------------- RUN ----------------
 
 client.run(TOKEN)
-
-
-
