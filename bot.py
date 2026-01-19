@@ -121,9 +121,15 @@ async def leaderboard(interaction: discord.Interaction):
 
 # ================= GRAPH =================
 
-@tree.command(name="graph", description="Show daily total points graph")
+@tree.command(name="graph")
 async def graph(interaction: discord.Interaction):
     await interaction.response.defer()
+
+    # slow work
+    generate_graph()
+
+    await interaction.followup.send(file=...)
+
 
     daily_data = load_json(DAILY_FILE)
     if not daily_data:
@@ -159,5 +165,6 @@ async def ping(interaction: discord.Interaction):
 # ================= RUN =================
 
 client.run(TOKEN)
+
 
 
