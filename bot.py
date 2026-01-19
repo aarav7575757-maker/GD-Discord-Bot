@@ -44,6 +44,7 @@ tree = app_commands.CommandTree(client)
 
 @client.event
 async def on_ready():
+    tree.clear_commands(guild=None)
     await tree.sync()
     print(f"✅ Logged in as {client.user}")
 
@@ -107,10 +108,10 @@ async def submit(
 
 @tree.command(name="leaderboard", description="Show points leaderboard")
 async def leaderboard(interaction: discord.Interaction):
-    await interaction.response.defer()
+    await interaction.response.send_message("⏳ Loading leaderboard...")
 
     if not points:
-        await interaction.followup.send("No data yet")
+        await interaction.edit_original_response(content="No data yet")
         return
 
     sorted_users = sorted(points.items(), key=lambda x: x[1], reverse=True)
@@ -120,7 +121,8 @@ async def leaderboard(interaction: discord.Interaction):
         user = await client.fetch_user(int(uid))
         text += f"**{i}. {user.name}** — {pts} pts\n"
 
-    await interaction.followup.send(text)
+    await interaction.edit_original_response(content=text)
+
 
 # ---------------- /graph ----------------
 
@@ -163,3 +165,4 @@ async def graph(interaction: discord.Interaction):
 # ---------------- RUN ----------------
 
 client.run(TOKEN)
+
