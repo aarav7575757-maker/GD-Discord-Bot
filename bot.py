@@ -35,7 +35,6 @@ def save_json(path, data):
 # ================= BOT =================
 
 intents = discord.Intents.default()
-intents.members = True
 
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
@@ -155,3 +154,4 @@ async def graph(interaction: discord.Interaction):
 # ================= RUN =================
 
 client.run(TOKEN)
+
