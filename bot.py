@@ -151,7 +151,13 @@ async def graph(interaction: discord.Interaction):
 
     await interaction.followup.send(file=discord.File(path))
 
+@tree.command(name="ping", description="Test command")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message("Pong!")
+
+
 # ================= RUN =================
 
 client.run(TOKEN)
+
 
